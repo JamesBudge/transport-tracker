@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>Transport Tracker</title>
+  <meta name="description" content="Track transport progress with daily rounds, history editing, and backup import/export." />
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Transport" />
+  <link rel="manifest" href="site.webmanifest" />
+  <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon-180.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="assets/icons/icon-512.png" />
+  <style>
+    :root{
+      --bg:#f3f7fc; --bg-soft:#eef4fb; --card:#ffffff; --text:#142133; --muted:#66768b; --border:#d8e3f0;
+      --accent:#2563eb; --accent-soft:#dbeafe; --good:#16a34a; --good-soft:#dcfce7; --warn:#d97706;
+      --warn-soft:#ffedd5; --danger:#dc2626; --danger-soft:#fee2e2; --shadow:0 8px 28px rgba(20,33,51,.08);
+      --radius:18px; --radius-sm:14px; --sticky-bottom:88px;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root{
+        --bg:#0b1220; --bg-soft:#111b2f; --card:#121c2f; --text:#edf3ff; --muted:#a6b4ca; --border:#23314d;
+        --accent:#60a5fa; --accent-soft:#102744; --good:#4ade80; --good-soft:#0f2a1a; --warn:#f59e0b;
+        --warn-soft:#37250a; --danger:#f87171; --danger-soft:#3b1418; --shadow:0 8px 28px rgba(0,0,0,.28);
+      }
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      margin:0;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter","Segoe UI",Roboto,sans-serif;
+      background:
+        radial-gradient(circle at top right, rgba(37,99,235,.08), transparent 22%),
+        radial-gradient(circle at top left, rgba(22,163,74,.06), transparent 18%),
+        var(--bg);
+      color:var(--text);
+      padding-bottom:calc(var(--sticky-bottom) + env(safe-area-inset-bottom));
+    }
+    .wrap{max-width:1020px;margin:0 auto;padding:16px 16px 24px}
+    .section{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+    .hero{position:relative;overflow:hidden;padding:20px;background:linear-gradient(135deg, rgba(37,99,235,.12), rgba(37,99,235,.04) 46%, rgba(22,163,74,.07)), var(--card)}
+    .hero:after{content:"";position:absolute;right:-40px;top:-40px;width:180px;height:180px;background:radial-gradient(circle, rgba(37,99,235,.16), transparent 65%);pointer-events:none}
+    h1,h2,h3,p{margin-top:0}
+    h1{font-size:1.65rem;margin-bottom:6px}
+    h2{font-size:1.1rem;margin-bottom:12px}
+    .subtle{color:var(--muted)}
+    .tiny{font-size:.82rem}
+    .big-number{font-size:2.35rem;font-weight:800;letter-spacing:-.03em;line-height:1}
+    .grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+    .grid-3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+    .rounds{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+    .btn-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+    .form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+    .form-grid-4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+    @media (max-width:780px){.grid,.grid-3,.rounds,.btn-row,.form-grid,.form-grid-4{grid-template-columns:1fr}.big-number{font-size:2rem}}
+    .metric{border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;background:linear-gradient(180deg, var(--card), var(--bg-soft));min-height:110px}
+    .metric.today-complete{border-color:rgba(22,163,74,.45);box-shadow:0 0 0 3px rgba(22,163,74,.10);background:linear-gradient(180deg, var(--card), var(--good-soft))}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:7px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent);font-size:.84rem;font-weight:700;border:1px solid rgba(37,99,235,.12)}
+    .pill.good{background:var(--good-soft);color:var(--good);border-color:rgba(22,163,74,.16)}
+    .pill.warn{background:var(--warn-soft);color:var(--warn);border-color:rgba(217,119,6,.16)}
+    .pill.danger{background:var(--danger-soft);color:var(--danger);border-color:rgba(220,38,38,.14)}
+    .header-row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+    .progress{width:100%;height:12px;background:rgba(148,163,184,.20);border-radius:999px;overflow:hidden;margin-top:10px}
+    .bar{height:100%;width:0%;background:linear-gradient(90deg, var(--accent), #60a5fa);transition:width .35s ease;border-radius:999px}
+    .bar.good{background:linear-gradient(90deg, var(--good), #4ade80)}
+    .bar.warn{background:linear-gradient(90deg, var(--warn), #fbbf24)}
+    .journey-wrap{margin-top:14px;padding:12px 12px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:rgba(255,255,255,.35);backdrop-filter: blur(4px)}
+    .journey-track{position:relative;height:10px;border-radius:999px;background:linear-gradient(90deg, rgba(148,163,184,.22), rgba(148,163,184,.14));margin:14px 4px 12px;overflow:visible}
+    .journey-fill{position:absolute;inset:0 auto 0 0;width:0%;background:linear-gradient(90deg, var(--accent), var(--good));border-radius:999px;transition:width .35s ease}
+    .journey-marker{position:absolute;top:50%;transform:translate(-50%,-50%);width:22px;height:22px;border-radius:50%;background:var(--card);border:3px solid var(--accent);box-shadow:0 4px 12px rgba(37,99,235,.22);transition:left .35s ease}
+    .journey-labels{display:flex;justify-content:space-between;font-size:.82rem;color:var(--muted)}
+    button{appearance:none;border:none;border-radius:14px;padding:13px 14px;font-size:1rem;font-weight:700;cursor:pointer;transition:transform .08s ease, opacity .15s ease, box-shadow .15s ease}
+    button:active{transform:scale(.98)}
+    .btn-primary{background:linear-gradient(180deg, var(--accent), #1d4ed8);color:#fff;width:100%;box-shadow:0 8px 18px rgba(37,99,235,.22)}
+    .btn-secondary{background:var(--accent-soft);color:var(--accent);width:100%;border:1px solid rgba(37,99,235,.12)}
+    .btn-danger{background:var(--danger-soft);color:var(--danger);width:100%;border:1px solid rgba(220,38,38,.14)}
+    .btn-good{background:var(--good-soft);color:var(--good);width:100%;border:1px solid rgba(22,163,74,.16)}
+    .field{width:100%;border:1px solid var(--border);border-radius:12px;padding:12px;font:inherit;background:var(--card);color:var(--text)}
+    textarea.field{min-height:96px;resize:vertical}
+    .label{font-size:.84rem;color:var(--muted);margin-bottom:6px}
+    .round-box{border:1px solid var(--border);border-radius:14px;padding:12px;background:linear-gradient(180deg, var(--card), var(--bg-soft));transition:transform .2s ease, box-shadow .2s ease}
+    .round-box.done{border-color:rgba(22,163,74,.28);background:linear-gradient(180deg, var(--card), var(--good-soft));box-shadow:0 0 0 3px rgba(22,163,74,.08)}
+    .round-time{font-weight:800;margin-top:6px;font-size:1.05rem}
+    .chart-wrap{width:100%;overflow:auto}
+    canvas{width:100%;max-width:100%;height:260px;border:1px solid var(--border);border-radius:16px;background:linear-gradient(180deg, var(--card), var(--bg-soft))}
+    .edit-header{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+    .list{display:flex;flex-direction:column;gap:12px}
+    .entry-card{border:1px solid var(--border);border-radius:16px;padding:13px;background:linear-gradient(180deg, var(--card), var(--bg-soft))}
+    .entry-top{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+    .entry-meta{display:flex;gap:8px;flex-wrap:wrap}
+    .hidden{display:none !important}
+    .danger-zone{border:1px solid rgba(220,38,38,.16);background:rgba(220,38,38,.03)}
+    .confirm-box{border:1px solid var(--border);border-radius:14px;padding:12px;background:var(--card)}
+    .sticky-bar{position:fixed;left:12px;right:12px;bottom:12px;max-width:1020px;margin:0 auto;background:rgba(255,255,255,.86);border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow);backdrop-filter:blur(10px);padding:10px;display:grid;grid-template-columns:1.3fr .8fr;gap:10px;z-index:50}
+    @media (max-width:780px){.sticky-bar{grid-template-columns:1fr 1fr}}
+    @media (prefers-color-scheme: dark) {.sticky-bar{background:rgba(18,28,47,.88)}}
+    .status{padding:12px 14px;border-radius:14px;background:var(--warn-soft);border:1px solid rgba(217,119,6,.18);color:var(--warn);margin-top:10px;display:none}
+    .milestone{margin-top:10px;padding:12px 14px;border-radius:14px;border:1px solid var(--border);background:linear-gradient(180deg, var(--card), var(--bg-soft));font-weight:700}
+    .footer-note{text-align:center;color:var(--muted);font-size:.88rem;padding:6px 0 10px}
+    .edit-overlay-hint{margin-top:10px;padding:11px 13px;border-radius:14px;background:var(--warn-soft);color:var(--warn);border:1px solid rgba(217,119,6,.18);font-weight:700}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="section hero">
+    <div class="header-row">
+      <div>
+        <h1>Transport Tracker</h1>
+        <p class="subtle" style="margin-bottom:8px;">Track 3 nuts moved by <strong>0.25 mm</strong>, four times daily, toward an <strong>80 mm</strong> goal.</p>
+        <div class="pill" id="dayPill">📅 Day 1 of transport</div>
+      </div>
+      <div class="pill good" id="milestonePill">🎯 Getting started</div>
+    </div>
+    <div style="margin-top:14px;">
+      <div class="subtle tiny">Overall progress</div>
+      <div class="big-number" id="totalMoved">0.00 mm</div>
+      <div class="subtle" id="totalPercentText">0% of 80 mm</div>
+    </div>
+    <div class="journey-wrap">
+      <div class="header-row" style="align-items:center;">
+        <div class="tiny subtle">Transport journey</div>
+        <div class="tiny subtle" id="remainingDays">Approx. 80 days remaining at 1.00 mm/day</div>
+      </div>
+      <div class="journey-track">
+        <div class="journey-fill" id="journeyFill"></div>
+        <div class="journey-marker" id="journeyMarker" style="left:0%;"></div>
+      </div>
+      <div class="journey-labels">
+        <span>Start</span>
+        <span id="remainingDistance">80.00 mm remaining</span>
+        <span>80 mm</span>
+      </div>
+    </div>
+    <div class="milestone" id="milestoneMessage">🚀 Great start — keep the rhythm going.</div>
+    <div id="statusBox" class="status"></div>
+  </div>
+
+  <div class="section">
+    <div class="header-row">
+      <div>
+        <h2>Today</h2>
+        <div class="subtle">Your daily target is 4 rounds.</div>
+      </div>
+      <div class="pill" id="todayStatusPill">🟠 In progress</div>
+    </div>
+    <div class="grid">
+      <div class="metric" id="todayMetric">
+        <div class="subtle">Rounds completed today</div>
+        <div class="big-number" id="todayCount">0 / 4</div>
+        <div class="subtle">One round = all 3 nuts adjusted once</div>
+        <div class="progress"><div class="bar warn" id="todayBar"></div></div>
+      </div>
+      <div class="metric">
+        <div class="subtle">Today’s transport</div>
+        <div class="big-number" id="todayDistance">0.00 mm</div>
+        <div class="subtle">Average progress per nut for today</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Today’s round timestamps</h2>
+    <div class="rounds">
+      <div class="round-box" id="roundBox1"><div class="subtle">Round 1</div><div class="round-time" id="roundTime1">—</div></div>
+      <div class="round-box" id="roundBox2"><div class="subtle">Round 2</div><div class="round-time" id="roundTime2">—</div></div>
+      <div class="round-box" id="roundBox3"><div class="subtle">Round 3</div><div class="round-time" id="roundTime3">—</div></div>
+      <div class="round-box" id="roundBox4"><div class="subtle">Round 4</div><div class="round-time" id="roundTime4">—</div></div>
+    </div>
+  </div>
+
+  <div class="section" id="actionsSection">
+    <h2>Actions</h2>
+    <div class="btn-row">
+      <button class="btn-primary" id="completeRoundBtn" type="button">✅ Complete round</button>
+      <button class="btn-secondary" id="undoBtn" type="button">↩️ Undo last</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn-secondary" id="nutABtn" type="button">➕ Nut A +0.25 mm</button>
+      <button class="btn-secondary" id="nutBBtn" type="button">➕ Nut B +0.25 mm</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn-secondary" id="nutCBtn" type="button">➕ Nut C +0.25 mm</button>
+      <button class="btn-danger" id="showResetBtn" type="button">🗑️ Reset all data</button>
+    </div>
+    <div id="resetConfirmBox" class="confirm-box danger-zone hidden" style="margin-top:12px;">
+      <h3 style="margin-bottom:8px;">Confirm reset</h3>
+      <p class="subtle">This will remove all history and notes stored in this tracker.</p>
+      <div class="btn-row">
+        <button class="btn-danger" id="confirmResetBtn" type="button">Yes, delete everything</button>
+        <button class="btn-secondary" id="cancelResetBtn" type="button">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Per-nut progress</h2>
+    <div class="grid-3">
+      <div class="metric">
+        <div class="subtle">Nut A</div>
+        <div class="big-number" id="nutAValue">0.00 mm</div>
+        <div class="subtle" id="nutAPercent">0% of 80 mm</div>
+        <div class="progress"><div class="bar" id="nutABar"></div></div>
+      </div>
+      <div class="metric">
+        <div class="subtle">Nut B</div>
+        <div class="big-number" id="nutBValue">0.00 mm</div>
+        <div class="subtle" id="nutBPercent">0% of 80 mm</div>
+        <div class="progress"><div class="bar" id="nutBBar"></div></div>
+      </div>
+      <div class="metric">
+        <div class="subtle">Nut C</div>
+        <div class="big-number" id="nutCValue">0.00 mm</div>
+        <div class="subtle" id="nutCPercent">0% of 80 mm</div>
+        <div class="progress"><div class="bar" id="nutCBar"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Progress over time</h2>
+    <p class="subtle">Blue line = average transport progress. Dashed line = 80 mm target.</p>
+    <div class="chart-wrap"><canvas id="progressChart" width="900" height="260"></canvas></div>
+  </div>
+
+  <div class="section">
+    <h2>Daily notes</h2>
+    <textarea id="dailyNote" class="field" placeholder="Optional notes: pain, tightness, swelling, issues, appointments, etc."></textarea>
+    <div class="btn-row">
+      <button class="btn-secondary" id="saveNoteBtn" type="button">💾 Save note for today</button>
+      <button class="btn-secondary" id="reloadNoteBtn" type="button">🔄 Reload today’s note</button>
+    </div>
+  </div>
+
+
+
+  <div class="section">
+    <h2>Backup and restore</h2>
+    <div class="btn-row">
+      <button class="btn-secondary" id="exportJsonBtn" type="button">⬇️ Export backup (.json)</button>
+      <button class="btn-secondary" id="exportCsvBtn" type="button">⬇️ Export history (.csv)</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn-good" id="importJsonBtn" type="button">⬆️ Import backup (.json)</button>
+      <button class="btn-secondary" id="downloadTemplateBtn" type="button">🧾 Download empty template</button>
+    </div>
+    <input id="importFileInput" style="position:absolute;left:-9999px;" type="file" accept=".json,application/json" />
+    <div id="importConfirmBox" class="confirm-box hidden" style="margin-top:12px;">
+      <h3 style="margin-bottom:8px;">Import backup</h3>
+      <p class="subtle">This will replace the tracker data currently stored in this browser.</p>
+      <div class="btn-row">
+        <button class="btn-good" id="confirmImportBtn" type="button">Yes, import backup</button>
+        <button class="btn-secondary" id="cancelImportBtn" type="button">Cancel</button>
+      </div>
+    </div>
+    <div class="subtle" style="font-size:.84rem;margin-top:8px;">Recommended: export a JSON backup regularly, especially before changing phones or clearing browser data.</div>
+  </div>
+
+  <div class="section">
+    <div class="edit-header">
+      <div>
+        <h2 style="margin-bottom:6px;">History</h2>
+        <div class="subtle">Normal view is read-only. Turn on Edit mode to change rows.</div>
+      </div>
+      <div><span class="pill" id="editModeLabel">✏️ Edit mode off</span></div>
+    </div>
+    <div class="btn-row">
+      <button class="btn-secondary" id="toggleEditBtn" type="button">✏️ Turn on edit mode</button>
+      <button class="btn-good hidden" id="doneEditBtn" type="button">✅ Done editing</button>
+    </div>
+    <div id="editHint" class="edit-overlay-hint hidden">✏️ Editing mode — changes update live.</div>
+    <div id="historyList" class="list" style="margin-top:12px;"></div>
+  </div>
+
+  <div class="footer-note">Saved locally on this device/browser. Add to your iPhone Home Screen from Safari for app-like use.</div>
+</div>
+
+<div class="sticky-bar">
+  <button class="btn-primary" id="stickyRoundBtn" type="button">✅ Complete round</button>
+  <button class="btn-secondary" id="stickyUndoBtn" type="button">↩️ Undo</button>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var DEFAULT_STEP_MM = 0.25, TARGET_DAILY_ROUNDS = 4, TARGET_TOTAL_MM = 80.0, STORAGE_KEY = "nutTransportTrackerV6", editMode = false;
+  function clone(obj){ return JSON.parse(JSON.stringify(obj)); }
+  var defaultState = { entries: [], notes: {} };
+  function el(id){ return document.getElementById(id); }
+  function showStatus(msg){ el("statusBox").style.display = "block"; el("statusBox").textContent = msg; }
+  function hideStatus(){ el("statusBox").style.display = "none"; el("statusBox").textContent = ""; }
+  function safeGetStorage(){ try { return window.localStorage; } catch (e) { return null; } }
+  function pad(n){ return String(n).padStart(2, "0"); }
+  function todayKey(){ var d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate()); }
+  function nowTime(){ var d = new Date(); return pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+  function makeId(){ return String(Date.now()) + "_" + Math.random().toString(16).slice(2); }
+  function formatMM(n){ return Number(n).toFixed(2) + " mm"; }
+  function clampPercent(v){ return Math.max(0, Math.min(100, v)); }
+  function esc(s){ return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;"); }
+
+  function loadState() {
+    var storage = safeGetStorage();
+    if (!storage) { showStatus("Local storage is unavailable in this viewer, so changes may not persist after closing."); return clone(defaultState); }
+    try {
+      var raw = storage.getItem(STORAGE_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.entries)) return parsed;
+      }
+    } catch (e) {}
+    return migrateOlderData();
+  }
+
+  function migrateOlderData() {
+    var storage = safeGetStorage();
+    if (!storage) return clone(defaultState);
+    var converted = clone(defaultState);
+    var keys = ["nutTransportTrackerV5","nutTransportTrackerV4","nutTransportTrackerV3","nutTransportTrackerV2","nutTransportTrackerV1"];
+    for (var k = 0; k < keys.length; k++) {
+      try {
+        var raw = storage.getItem(keys[k]);
+        if (!raw) continue;
+        var old = JSON.parse(raw);
+        if ((keys[k] === "nutTransportTrackerV5" || keys[k] === "nutTransportTrackerV4" || keys[k] === "nutTransportTrackerV3") && old && Array.isArray(old.entries)) {
+          converted.entries = old.entries.map(function(e){
+            return { id:e.id || makeId(), date:e.date || todayKey(), time:e.time || "12:00", type:e.type || ((e.nut === "all") ? "round" : "manual"), nut:e.nut || "all", distance:Number(e.distance || DEFAULT_STEP_MM) };
+          });
+          converted.notes = old.notes || {};
+          return converted;
+        }
+        if ((keys[k] === "nutTransportTrackerV2" || keys[k] === "nutTransportTrackerV1") && old && Array.isArray(old.log)) {
+          converted.entries = old.log.map(function(item){
+            var type = item.type === "round" ? "round" : "manual", nut = "all";
+            if (type === "manual") {
+              if ((item.label || "").indexOf("Nut A") !== -1) nut = "A";
+              else if ((item.label || "").indexOf("Nut B") !== -1) nut = "B";
+              else if ((item.label || "").indexOf("Nut C") !== -1) nut = "C";
+            }
+            return { id:item.entryId || makeId(), date:item.date || todayKey(), time:item.timeOnly || "12:00", type:type, nut:nut, distance:DEFAULT_STEP_MM };
+          });
+          converted.notes = old.notes || {};
+          return converted;
+        }
+      } catch (e) {}
+    }
+    return converted;
+  }
+
+  function saveState() {
+    var storage = safeGetStorage();
+    if (!storage) { showStatus("Local storage is unavailable in this viewer, so changes may not persist after closing."); return false; }
+    try { storage.setItem(STORAGE_KEY, JSON.stringify(state)); hideStatus(); return true; }
+    catch (e) { showStatus("This viewer blocked saving to local storage. Changes may not persist."); return false; }
+  }
+
+  function sortedEntries(){ return state.entries.slice().sort(function(a,b){ return (a.date + " " + a.time).localeCompare(b.date + " " + b.time); }); }
+  function totalsFromEntries(entries){
+    var nuts = {A:0,B:0,C:0};
+    (entries || state.entries).forEach(function(e){
+      var d = Number(e.distance) || 0;
+      if (e.type === "round" || e.nut === "all") { nuts.A += d; nuts.B += d; nuts.C += d; }
+      else if (e.nut === "A") nuts.A += d;
+      else if (e.nut === "B") nuts.B += d;
+      else if (e.nut === "C") nuts.C += d;
+    });
+    return nuts;
+  }
+  function averageProgress(){ var nuts = totalsFromEntries(); return (nuts.A + nuts.B + nuts.C) / 3; }
+  function startDate(){ if (!state.entries.length) return null; return sortedEntries()[0].date; }
+  function daysSinceStart(){ var s = startDate(); if (!s) return 1; var start = new Date(s + "T00:00:00"), today = new Date(todayKey() + "T00:00:00"); return Math.max(1, Math.round((today - start)/86400000) + 1); }
+  function todayEntries(){ return state.entries.filter(function(e){ return e.date === todayKey(); }); }
+  function getTodayRoundEntries(){ return todayEntries().filter(function(e){ return e.type === "round" || e.nut === "all"; }).sort(function(a,b){ return a.time.localeCompare(b.time); }); }
+  function countTodayRounds(){ return getTodayRoundEntries().length; }
+  function todayDistance(){ var nuts = totalsFromEntries(todayEntries()); return (nuts.A + nuts.B + nuts.C) / 3; }
+  function projectedDaysRemaining(){ return Math.max(0, TARGET_TOTAL_MM - averageProgress()); }
+  function addEntry(type, nut, distance){ state.entries.push({ id:makeId(), date:todayKey(), time:nowTime(), type:type, nut:nut, distance:Number(distance) }); saveState(); render(); }
+  function completeRound(){ addEntry("round","all",DEFAULT_STEP_MM); }
+  function manualAdd(nut){ addEntry("manual",nut,DEFAULT_STEP_MM); }
+  function undoLast(){ if (!state.entries.length) { showStatus("There is nothing to undo."); return; } var s = sortedEntries(), last = s[s.length - 1]; state.entries = state.entries.filter(function(e){ return e.id !== last.id; }); saveState(); render(); }
+  function showResetConfirm(show){ el("resetConfirmBox").classList.toggle("hidden", !show); }
+  function performReset(){ state = clone(defaultState); saveState(); showResetConfirm(false); render(); }
+  function saveNote(){ state.notes[todayKey()] = el("dailyNote").value || ""; saveState(); showStatus("Today’s note saved."); }
+  function loadTodayNote(){ el("dailyNote").value = state.notes[todayKey()] || ""; }
+
+  function renderRoundTimes(){
+    var rounds = getTodayRoundEntries();
+    for (var i = 1; i <= 4; i++) {
+      var box = el("roundBox" + i), time = el("roundTime" + i);
+      if (rounds[i - 1]) { box.classList.add("done"); time.textContent = rounds[i - 1].time; }
+      else { box.classList.remove("done"); time.textContent = "—"; }
+    }
+  }
+
+  function dailyProgressSeries() {
+    var entries = sortedEntries(), byDate = {};
+    entries.forEach(function(e){ if (!byDate[e.date]) byDate[e.date] = []; byDate[e.date].push(e); });
+    var dates = Object.keys(byDate).sort(), A = 0, B = 0, C = 0, points = [];
+    dates.forEach(function(date){
+      byDate[date].forEach(function(e){
+        var d = Number(e.distance) || 0;
+        if (e.type === "round" || e.nut === "all") { A += d; B += d; C += d; }
+        else if (e.nut === "A") A += d;
+        else if (e.nut === "B") B += d;
+        else if (e.nut === "C") C += d;
+      });
+      points.push({ date:date, avg:(A+B+C)/3 });
+    });
+    return points;
+  }
+
+  function getCss(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+  function drawChart() {
+    var canvas = el("progressChart");
+    if (!canvas || !canvas.getContext) return;
+    var ctx = canvas.getContext("2d"), W = canvas.width, H = canvas.height;
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = getCss("--card");
+    ctx.fillRect(0,0,W,H);
+
+    var points = dailyProgressSeries(), left = 54, right = 18, top = 18, bottom = 34, plotW = W - left - right, plotH = H - top - bottom;
+    ctx.strokeStyle = "rgba(148,163,184,.22)";
+    ctx.lineWidth = 1;
+    for (var i = 0; i <= 4; i++) {
+      var y = top + (plotH * i / 4);
+      ctx.beginPath(); ctx.moveTo(left, y); ctx.lineTo(left + plotW, y); ctx.stroke();
+      ctx.fillStyle = getCss("--muted"); ctx.font = "12px sans-serif";
+      ctx.fillText((TARGET_TOTAL_MM * (1 - i / 4)).toFixed(0) + " mm", 6, y + 4);
+    }
+    ctx.beginPath();
+    ctx.setLineDash([6,5]);
+    ctx.moveTo(left, top); ctx.lineTo(left + plotW, top);
+    ctx.strokeStyle = "rgba(22,163,74,.55)";
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.beginPath();
+    ctx.moveTo(left, top); ctx.lineTo(left, top + plotH); ctx.lineTo(left + plotW, top + plotH);
+    ctx.strokeStyle = "rgba(148,163,184,.55)";
+    ctx.stroke();
+
+    if (!points.length) {
+      ctx.fillStyle = getCss("--muted"); ctx.font = "14px sans-serif";
+      ctx.fillText("No progress points yet.", left + 20, top + plotH / 2);
+      return;
+    }
+    function xForIndex(i){ return points.length === 1 ? left + plotW / 2 : left + (plotW * i / (points.length - 1)); }
+    function yForValue(v){ return top + plotH - (Math.min(v, TARGET_TOTAL_MM) / TARGET_TOTAL_MM) * plotH; }
+
+    ctx.beginPath();
+    points.forEach(function(p, i){ var x = xForIndex(i), y = yForValue(p.avg); if (i === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+    ctx.lineTo(xForIndex(points.length - 1), top + plotH);
+    ctx.lineTo(xForIndex(0), top + plotH);
+    ctx.closePath();
+    var gradient = ctx.createLinearGradient(0, top, 0, top + plotH);
+    gradient.addColorStop(0, "rgba(37,99,235,.22)");
+    gradient.addColorStop(1, "rgba(37,99,235,0)");
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    ctx.strokeStyle = getCss("--accent"); ctx.lineWidth = 3; ctx.beginPath();
+    points.forEach(function(p, i){ var x = xForIndex(i), y = yForValue(p.avg); if (i === 0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+    ctx.stroke();
+
+    ctx.fillStyle = getCss("--accent");
+    points.forEach(function(p, i){ var x = xForIndex(i), y = yForValue(p.avg); ctx.beginPath(); ctx.arc(x, y, 3.5, 0, Math.PI * 2); ctx.fill(); });
+
+    var labelCount = Math.min(points.length, 4);
+    ctx.fillStyle = getCss("--muted"); ctx.font = "12px sans-serif";
+    for (var j = 0; j < labelCount; j++) {
+      var idx = Math.round(j * (points.length - 1) / Math.max(1, labelCount - 1));
+      var lx = xForIndex(idx);
+      ctx.fillText(points[idx].date.slice(5), lx - 18, H - 10);
+    }
+  }
+
+  function historyCardView(e){
+    var typeLabel = e.type === "round" ? "Round" : "Manual";
+    var nutLabel = e.nut === "all" ? "All 3 nuts" : "Nut " + e.nut;
+    return '<div class="entry-card" data-id="' + esc(e.id) + '"><div class="entry-top"><div class="entry-meta"><span class="pill">' + esc(e.date) + '</span><span class="pill">' + esc(e.time) + '</span><span class="pill">' + esc(typeLabel) + '</span><span class="pill">' + esc(nutLabel) + '</span><span class="pill">' + Number(e.distance).toFixed(2) + ' mm</span></div></div></div>';
+  }
+
+  function historyEditView(e){
+    var deleteArea = '<div class="confirm-box danger-zone" style="margin-top:10px;"><div class="label" style="margin-bottom:8px;">Delete this entry</div><button class="btn-danger js-show-delete" type="button">Delete this entry</button><div style="height:8px;"></div><div class="js-delete-confirm hidden"><div class="subtle" style="margin-bottom:8px;">Are you sure you want to delete this entry?</div><div class="btn-row"><button class="btn-danger js-confirm-delete" type="button">Yes, delete it</button><button class="btn-secondary js-cancel-delete" type="button">Cancel</button></div></div></div>';
+    return '<div class="entry-card" data-id="' + esc(e.id) + '"><div class="entry-top"><strong>Edit entry</strong><span class="pill warn">Live update</span></div><div class="form-grid-4"><div><div class="label">Date</div><input class="field js-live" type="date" data-field="date" value="' + esc(e.date) + '"></div><div><div class="label">Time</div><input class="field js-live" type="time" data-field="time" value="' + esc(e.time) + '"></div><div><div class="label">Type</div><select class="field js-live" data-field="type"><option value="round"' + (e.type === "round" ? " selected" : "") + '>Round</option><option value="manual"' + (e.type === "manual" ? " selected" : "") + '>Manual</option></select></div><div><div class="label">Nut</div><select class="field js-live" data-field="nut"' + (e.type === "round" ? ' disabled' : '') + '><option value="all"' + (e.nut === "all" ? " selected" : "") + '>All 3 nuts</option><option value="A"' + (e.nut === "A" ? " selected" : "") + '>Nut A</option><option value="B"' + (e.nut === "B" ? " selected" : "") + '>Nut B</option><option value="C"' + (e.nut === "C" ? " selected" : "") + '>Nut C</option></select></div></div><div style="margin-top:10px;"><div class="label">Distance (mm)</div><input class="field js-live" type="number" step="0.01" min="0" data-field="distance" value="' + Number(e.distance).toFixed(2) + '"></div>' + deleteArea + '</div>';
+  }
+
+  function renderHistory(){
+    var list = el("historyList"), entries = sortedEntries().reverse();
+    if (!entries.length) { list.innerHTML = '<div class="entry-card subtle">No entries yet.</div>'; return; }
+    list.innerHTML = entries.map(function(e){ return editMode ? historyEditView(e) : historyCardView(e); }).join("");
+  }
+
+  function applyCardToState(card){
+    var id = card.getAttribute("data-id"), entry = state.entries.find(function(e){ return e.id === id; });
+    if (!entry) return false;
+    var dateEl = card.querySelector('[data-field="date"]'), timeEl = card.querySelector('[data-field="time"]'), typeEl = card.querySelector('[data-field="type"]'), nutEl = card.querySelector('[data-field="nut"]'), distEl = card.querySelector('[data-field="distance"]');
+    if (!dateEl || !timeEl || !typeEl || !nutEl || !distEl) return false;
+    var date = dateEl.value, time = timeEl.value, type = typeEl.value, nut = nutEl.value, distance = parseFloat(distEl.value);
+    if (!date || !time || !(distance >= 0)) return false;
+    entry.date = date; entry.time = time; entry.type = type; entry.nut = (type === "round") ? "all" : nut; entry.distance = distance;
+    return true;
+  }
+
+  function toggleEditMode(on){
+    editMode = !!on;
+    el("editModeLabel").textContent = editMode ? "✏️ Edit mode on" : "✏️ Edit mode off";
+    el("toggleEditBtn").textContent = editMode ? "Editing..." : "✏️ Turn on edit mode";
+    el("toggleEditBtn").disabled = editMode;
+    el("doneEditBtn").classList.toggle("hidden", !editMode);
+    el("editHint").classList.toggle("hidden", !editMode);
+    el("actionsSection").style.opacity = editMode ? ".82" : "1";
+    renderHistory();
+  }
+
+  function milestoneFor(avg){
+    if (avg >= 80) return ["🏁 Transport complete", "🏁 Complete — you’ve reached the 80 mm target."];
+    if (avg >= 60) return ["⚡ Nearly there", "⚡ Nearly there — the finish line is getting close."];
+    if (avg >= 40) return ["💪 Halfway", "💪 Halfway there — strong progress."];
+    if (avg >= 20) return ["🔥 Momentum building", "🔥 Momentum building — the transport journey is well underway."];
+    if (avg >= 10) return ["🚀 Great start", "🚀 Great start — keep the rhythm going."];
+    return ["🎯 Getting started", "🎯 Getting started — each round counts."];
+  }
+
+  function render(){
+    var nuts = totalsFromEntries(), avg = (nuts.A + nuts.B + nuts.C) / 3, remaining = Math.max(0, TARGET_TOTAL_MM - avg), pct = clampPercent(avg / TARGET_TOTAL_MM * 100), todayRounds = countTodayRounds(), todayMm = todayDistance(), todayPct = todayRounds / TARGET_DAILY_ROUNDS * 100, milestone = milestoneFor(avg);
+    el("totalMoved").textContent = formatMM(avg);
+    el("totalPercentText").textContent = pct.toFixed(1) + "% of 80 mm";
+    el("journeyFill").style.width = pct + "%";
+    el("journeyMarker").style.left = pct + "%";
+    el("remainingDistance").textContent = formatMM(remaining) + " remaining";
+    el("remainingDays").textContent = "Approx. " + projectedDaysRemaining().toFixed(0) + " days remaining at 1.00 mm/day";
+    el("milestonePill").textContent = milestone[0];
+    el("milestoneMessage").textContent = milestone[1];
+    el("dayPill").textContent = "📅 Day " + daysSinceStart() + " of transport";
+
+    el("todayCount").textContent = todayRounds + " / " + TARGET_DAILY_ROUNDS;
+    el("todayDistance").textContent = formatMM(todayMm);
+    var todayBar = el("todayBar");
+    todayBar.style.width = clampPercent(todayPct) + "%";
+    todayBar.className = "bar";
+    if (todayRounds >= TARGET_DAILY_ROUNDS) {
+      todayBar.classList.add("good");
+      el("todayMetric").classList.add("today-complete");
+      el("todayStatusPill").className = "pill good";
+      el("todayStatusPill").textContent = "✅ Day complete";
+    } else if (todayRounds >= 2) {
+      todayBar.classList.add("warn");
+      el("todayMetric").classList.remove("today-complete");
+      el("todayStatusPill").className = "pill warn";
+      el("todayStatusPill").textContent = "🟠 In progress";
+    } else {
+      todayBar.classList.add("warn");
+      el("todayMetric").classList.remove("today-complete");
+      el("todayStatusPill").className = "pill";
+      el("todayStatusPill").textContent = "🔵 Getting going";
+    }
+
+    [["A","nutA"],["B","nutB"],["C","nutC"]].forEach(function(pair){
+      var nut = pair[0], prefix = pair[1], mm = nuts[nut], nutPct = mm / TARGET_TOTAL_MM * 100;
+      el(prefix + "Value").textContent = formatMM(mm);
+      el(prefix + "Percent").textContent = nutPct.toFixed(1) + "% of 80 mm";
+      el(prefix + "Bar").style.width = clampPercent(nutPct) + "%";
+    });
+
+    loadTodayNote();
+    renderRoundTimes();
+    renderHistory();
+    drawChart();
+  }
+
+  function bindEvents(){
+    el("completeRoundBtn").addEventListener("click", completeRound);
+    el("undoBtn").addEventListener("click", undoLast);
+    el("nutABtn").addEventListener("click", function(){ manualAdd("A"); });
+    el("nutBBtn").addEventListener("click", function(){ manualAdd("B"); });
+    el("nutCBtn").addEventListener("click", function(){ manualAdd("C"); });
+    el("stickyRoundBtn").addEventListener("click", completeRound);
+    el("stickyUndoBtn").addEventListener("click", undoLast);
+
+    el("showResetBtn").addEventListener("click", function(){ showResetConfirm(true); });
+    el("cancelResetBtn").addEventListener("click", function(){ showResetConfirm(false); });
+    el("confirmResetBtn").addEventListener("click", performReset);
+
+    el("saveNoteBtn").addEventListener("click", saveNote);
+    el("reloadNoteBtn").addEventListener("click", loadTodayNote);
+    el("exportJsonBtn").addEventListener("click", exportJson);
+    el("exportCsvBtn").addEventListener("click", exportCsv);
+    el("downloadTemplateBtn").addEventListener("click", downloadTemplate);
+    el("importJsonBtn").addEventListener("click", beginImport);
+    el("importFileInput").addEventListener("change", function(ev){ handleImportFile(ev.target.files && ev.target.files[0]); });
+    el("confirmImportBtn").addEventListener("click", confirmImport);
+    el("cancelImportBtn").addEventListener("click", cancelImport);
+
+    el("toggleEditBtn").addEventListener("click", function(){ toggleEditMode(true); });
+    el("doneEditBtn").addEventListener("click", function(){ saveState(); toggleEditMode(false); render(); });
+
+    el("historyList").addEventListener("input", function(ev){
+      if (!editMode) return;
+      var target = ev.target;
+      if (!target.classList.contains("js-live")) return;
+      var card = target.closest(".entry-card");
+      if (!card) return;
+      if (applyCardToState(card)) { saveState(); render(); toggleEditMode(true); }
+    });
+
+    el("historyList").addEventListener("change", function(ev){
+      if (!editMode) return;
+      var target = ev.target, card = target.closest(".entry-card");
+      if (!card) return;
+      if (target.getAttribute("data-field") === "type") {
+        var typeEl = card.querySelector('[data-field="type"]'), nutEl = card.querySelector('[data-field="nut"]');
+        if (typeEl && nutEl) {
+          if (typeEl.value === "round") { nutEl.value = "all"; nutEl.disabled = true; }
+          else { nutEl.disabled = false; if (nutEl.value === "all") nutEl.value = "A"; }
+        }
+      }
+      if (applyCardToState(card)) { saveState(); render(); toggleEditMode(true); }
+    });
+
+    el("historyList").addEventListener("click", function(ev){
+      var card = ev.target.closest(".entry-card");
+      if (!card) return;
+      if (ev.target.closest(".js-show-delete")) {
+        var box = card.querySelector(".js-delete-confirm"); if (box) box.classList.remove("hidden"); return;
+      }
+      if (ev.target.closest(".js-cancel-delete")) {
+        var box2 = card.querySelector(".js-delete-confirm"); if (box2) box2.classList.add("hidden"); return;
+      }
+      if (ev.target.closest(".js-confirm-delete")) {
+        var id = card.getAttribute("data-id");
+        state.entries = state.entries.filter(function(e){ return e.id !== id; });
+        saveState(); render(); toggleEditMode(true);
+      }
+    });
+
+    if (window.matchMedia) {
+      var mq = window.matchMedia("(prefers-color-scheme: dark)");
+      if (mq.addEventListener) mq.addEventListener("change", function(){ drawChart(); });
+    }
+  }
+
+  var state = loadState();
+  bindEvents();
+  render();
+})();
+</script>
+</body>
+</html>
