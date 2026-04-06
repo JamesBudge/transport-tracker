@@ -641,10 +641,26 @@
     }
   }
 
+  
   var state = loadState();
+
+  function refreshFromStorage() {
+    state = loadState();
+    render();
+  }
+
   bindEvents();
-  render();
+  refreshFromStorage();
+
+  window.addEventListener("pageshow", refreshFromStorage);
+  window.addEventListener("focus", refreshFromStorage);
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) {
+      refreshFromStorage();
+    }
+  });
 })();
 </script>
+
 </body>
 </html>
