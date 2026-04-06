@@ -303,62 +303,155 @@
   function clampPercent(v){ return Math.max(0, Math.min(100, v)); }
   function esc(s){ return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;"); }
 
-  function loadState() {
-    var storage = safeGetStorage();
-    if (!storage) { showStatus("Local storage is unavailable in this viewer, so changes may not persist after closing."); return clone(defaultState); }
-    try {
-      var raw = storage.getItem(STORAGE_KEY);
-      if (raw) {
-        var parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.entries)) return parsed;
+  var DB_NAME = "TransportTrackerDB";
+  var DB_VERSION = 1;
+  var STORE_NAME = "appState";
+  var DB_KEY = STORAGE_KEY;
+  var CACHE_KEY = STORAGE_KEY + "_cache";
+  var dbPromise = null;
+
+  function openDb() {
+    if (dbPromise) return dbPromise;
+    dbPromise = new Promise(function(resolve, reject) {
+      if (!window.indexedDB) {
+        reject(new Error("IndexedDB unavailable"));
+        return;
       }
-    } catch (e) {}
-    return migrateOlderData();
+      var request = window.indexedDB.open(DB_NAME, DB_VERSION);
+      request.onupgradeneeded = function(event) {
+        var db = event.target.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME);
+        }
+      };
+      request.onsuccess = function(event) { resolve(event.target.result); };
+      request.onerror = function() { reject(request.error || new Error("IndexedDB open failed")); };
+    });
+    return dbPromise;
   }
 
-  function migrateOlderData() {
+  function idbGet(key) {
+    return openDb().then(function(db) {
+      return new Promise(function(resolve, reject) {
+        var tx = db.transaction(STORE_NAME, "readonly");
+        var store = tx.objectStore(STORE_NAME);
+        var req = store.get(key);
+        req.onsuccess = function() { resolve(req.result || null); };
+        req.onerror = function() { reject(req.error || new Error("IndexedDB get failed")); };
+      });
+    });
+  }
+
+  function idbSet(key, value) {
+    return openDb().then(function(db) {
+      return new Promise(function(resolve, reject) {
+        var tx = db.transaction(STORE_NAME, "readwrite");
+        var store = tx.objectStore(STORE_NAME);
+        var req = store.put(value, key);
+        req.onsuccess = function() { resolve(true); };
+        req.onerror = function() { reject(req.error || new Error("IndexedDB put failed")); };
+      });
+    });
+  }
+
+  function normalizeState(raw) {
+    if (!raw) return null;
+    if (raw && Array.isArray(raw.entries)) {
+      return {
+        entries: raw.entries.map(function(e){
+          return {
+            id: e.id || makeId(),
+            date: e.date || todayKey(),
+            time: e.time || "12:00",
+            type: e.type || ((e.nut === "all") ? "round" : "manual"),
+            nut: e.nut || "all",
+            distance: Number(e.distance || DEFAULT_STEP_MM)
+          };
+        }),
+        notes: raw.notes || {}
+      };
+    }
+    return null;
+  }
+
+  function migrateOlderDataSync() {
     var storage = safeGetStorage();
     if (!storage) return clone(defaultState);
-    var converted = clone(defaultState);
-    var keys = ["nutTransportTrackerV5","nutTransportTrackerV4","nutTransportTrackerV3","nutTransportTrackerV2","nutTransportTrackerV1"];
+    var keys = [CACHE_KEY, STORAGE_KEY, "nutTransportTrackerV7", "nutTransportTrackerV6", "nutTransportTrackerV5", "nutTransportTrackerV4", "nutTransportTrackerV3", "nutTransportTrackerV2", "nutTransportTrackerV1"];
     for (var k = 0; k < keys.length; k++) {
       try {
         var raw = storage.getItem(keys[k]);
         if (!raw) continue;
         var old = JSON.parse(raw);
-        if ((keys[k] === "nutTransportTrackerV5" || keys[k] === "nutTransportTrackerV4" || keys[k] === "nutTransportTrackerV3") && old && Array.isArray(old.entries)) {
-          converted.entries = old.entries.map(function(e){
-            return { id:e.id || makeId(), date:e.date || todayKey(), time:e.time || "12:00", type:e.type || ((e.nut === "all") ? "round" : "manual"), nut:e.nut || "all", distance:Number(e.distance || DEFAULT_STEP_MM) };
-          });
-          converted.notes = old.notes || {};
-          return converted;
-        }
+        var normalized = normalizeState(old);
+        if (normalized) return normalized;
         if ((keys[k] === "nutTransportTrackerV2" || keys[k] === "nutTransportTrackerV1") && old && Array.isArray(old.log)) {
-          converted.entries = old.log.map(function(item){
-            var type = item.type === "round" ? "round" : "manual", nut = "all";
-            if (type === "manual") {
-              if ((item.label || "").indexOf("Nut A") !== -1) nut = "A";
-              else if ((item.label || "").indexOf("Nut B") !== -1) nut = "B";
-              else if ((item.label || "").indexOf("Nut C") !== -1) nut = "C";
-            }
-            return { id:item.entryId || makeId(), date:item.date || todayKey(), time:item.timeOnly || "12:00", type:type, nut:nut, distance:DEFAULT_STEP_MM };
-          });
-          converted.notes = old.notes || {};
-          return converted;
+          return {
+            entries: old.log.map(function(item){
+              var type = item.type === "round" ? "round" : "manual", nut = "all";
+              if (type === "manual") {
+                if ((item.label || "").indexOf("Nut A") !== -1) nut = "A";
+                else if ((item.label || "").indexOf("Nut B") !== -1) nut = "B";
+                else if ((item.label || "").indexOf("Nut C") !== -1) nut = "C";
+              }
+              return { id:item.entryId || makeId(), date:item.date || todayKey(), time:item.timeOnly || "12:00", type:type, nut:nut, distance:DEFAULT_STEP_MM };
+            }),
+            notes: old.notes || {}
+          };
         }
       } catch (e) {}
     }
-    return converted;
+    return clone(defaultState);
+  }
+
+  function loadStateSync() {
+    var storage = safeGetStorage();
+    if (storage) {
+      try {
+        var raw = storage.getItem(CACHE_KEY);
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          var normalized = normalizeState(parsed);
+          if (normalized) return normalized;
+        }
+      } catch (e) {}
+    }
+    var migrated = migrateOlderDataSync();
+    if (storage) {
+      try { storage.setItem(CACHE_KEY, JSON.stringify(migrated)); } catch (e) {}
+    }
+    return migrated;
+  }
+
+  async function loadState() {
+    try {
+      var fromDb = await idbGet(DB_KEY);
+      var normalized = normalizeState(fromDb);
+      if (normalized) {
+        var storage = safeGetStorage();
+        if (storage) {
+          try { storage.setItem(CACHE_KEY, JSON.stringify(normalized)); } catch (e) {}
+        }
+        return normalized;
+      }
+      var migrated = loadStateSync();
+      try { await idbSet(DB_KEY, migrated); } catch (e) {}
+      return migrated;
+    } catch (e) {
+      return loadStateSync();
+    }
   }
 
   function saveState() {
+    var snapshot = clone(state);
     var storage = safeGetStorage();
-    if (!storage) { showStatus("Local storage is unavailable in this viewer, so changes may not persist after closing."); return false; }
-    try { storage.setItem(STORAGE_KEY, JSON.stringify(state));
-      storage.setItem(STORAGE_KEY + "_last_saved_at", String(Date.now()));
-      hideStatus();
-      return true; }
-    catch (e) { showStatus("This viewer blocked saving to local storage. Changes may not persist."); return false; }
+    if (storage) {
+      try { storage.setItem(CACHE_KEY, JSON.stringify(snapshot)); } catch (e) {}
+    }
+    idbSet(DB_KEY, snapshot).then(function(){ hideStatus(); }).catch(function(){
+      showStatus("IndexedDB save failed. Local cache is still available on this device.");
+    });
+    return true;
   }
 
   function sortedEntries(){ return state.entries.slice().sort(function(a,b){ return (a.date + " " + a.time).localeCompare(b.date + " " + b.time); }); }
@@ -649,7 +742,7 @@
   }
 
   
-  var state = loadState();
+  var state = loadStateSync();
   var lastRenderedFingerprint = null;
 
   function currentStateFingerprint(obj) {
@@ -666,79 +759,42 @@
     }
   }
 
-  function syncFromStorage() {
-    state = loadState();
-    render();
-    lastRenderedFingerprint = currentStateFingerprint(state);
-  }
-
-  function refreshGuardBeforeAction() {
-    var latest = loadState();
+  async function syncFromPersistence(showMessage) {
+    var latest = await loadState();
     var latestFingerprint = currentStateFingerprint(latest);
-    if (lastRenderedFingerprint !== latestFingerprint) {
+    if (latestFingerprint !== lastRenderedFingerprint) {
       state = latest;
       render();
       lastRenderedFingerprint = latestFingerprint;
-      showStatus("Saved data refreshed. Tap again to record a new action.");
-      return true;
+      if (showMessage) showStatus("Saved data reloaded.");
+    } else if (showMessage) {
+      showStatus("Saved data already up to date.");
     }
-    return false;
+
+    if (window.requestAnimationFrame) {
+      window.requestAnimationFrame(function () { render(); });
+    }
+    window.setTimeout(function () { render(); }, 50);
+    window.setTimeout(function () { render(); }, 250);
   }
-
-  var _completeRound = completeRound;
-  completeRound = function() {
-    if (refreshGuardBeforeAction()) return;
-    hideStatus();
-    _completeRound();
-    lastRenderedFingerprint = currentStateFingerprint(state);
-  };
-
-  var _manualAdd = manualAdd;
-  manualAdd = function(nut) {
-    if (refreshGuardBeforeAction()) return;
-    hideStatus();
-    _manualAdd(nut);
-    lastRenderedFingerprint = currentStateFingerprint(state);
-  };
-
-  var _undoLast = undoLast;
-  undoLast = function() {
-    if (refreshGuardBeforeAction()) return;
-    hideStatus();
-    _undoLast();
-    lastRenderedFingerprint = currentStateFingerprint(state);
-  };
-
-  var _performReset = performReset;
-  performReset = function() {
-    hideStatus();
-    _performReset();
-    lastRenderedFingerprint = currentStateFingerprint(state);
-  };
-
-  var _saveNote = saveNote;
-  saveNote = function() {
-    hideStatus();
-    _saveNote();
-    lastRenderedFingerprint = currentStateFingerprint(state);
-  };
 
   bindEvents();
 
   if (el("syncNowBtn")) {
     el("syncNowBtn").addEventListener("click", function() {
-      syncFromStorage();
-      showStatus("Saved data reloaded.");
+      syncFromPersistence(true);
     });
   }
 
-  syncFromStorage();
+  render();
+  lastRenderedFingerprint = currentStateFingerprint(state);
+  syncFromPersistence(false);
 
-  window.addEventListener("load", function () { syncFromStorage(); });
-  window.addEventListener("pageshow", function () { syncFromStorage(); });
-  window.addEventListener("focus", function () { syncFromStorage(); });
+  window.addEventListener("load", function () { syncFromPersistence(false); });
+  window.addEventListener("pageshow", function () { syncFromPersistence(false); });
+  window.addEventListener("focus", function () { syncFromPersistence(false); });
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) syncFromStorage();
+    if (!document.hidden) syncFromPersistence(false);
   });
 })();
 </script>
