@@ -350,7 +350,10 @@
   function saveState() {
     var storage = safeGetStorage();
     if (!storage) { showStatus("Local storage is unavailable in this viewer, so changes may not persist after closing."); return false; }
-    try { storage.setItem(STORAGE_KEY, JSON.stringify(state)); hideStatus(); return true; }
+    try { storage.setItem(STORAGE_KEY, JSON.stringify(state));
+      storage.setItem(STORAGE_KEY + "_last_saved_at", String(Date.now()));
+      hideStatus();
+      return true; }
     catch (e) { showStatus("This viewer blocked saving to local storage. Changes may not persist."); return false; }
   }
 
@@ -643,22 +646,64 @@
 
   
   var state = loadState();
+  var lastSeenSavedAt = null;
 
-  function refreshFromStorage() {
+  function getLastSavedAt() {
+    var storage = safeGetStorage();
+    if (!storage) return null;
+    return storage.getItem(STORAGE_KEY + "_last_saved_at");
+  }
+
+  function hardRefreshFromStorage() {
     state = loadState();
     render();
+
+    if (window.requestAnimationFrame) {
+      window.requestAnimationFrame(function () {
+        render();
+      });
+    }
+
+    window.setTimeout(function () { render(); }, 50);
+    window.setTimeout(function () { render(); }, 250);
+    window.setTimeout(function () { render(); }, 800);
+
+    lastSeenSavedAt = getLastSavedAt();
+  }
+
+  function maybeRefreshFromStorage() {
+    var latest = getLastSavedAt();
+    if (latest !== lastSeenSavedAt) {
+      hardRefreshFromStorage();
+    } else {
+      render();
+    }
   }
 
   bindEvents();
-  refreshFromStorage();
+  hardRefreshFromStorage();
 
-  window.addEventListener("pageshow", refreshFromStorage);
-  window.addEventListener("focus", refreshFromStorage);
+  window.addEventListener("load", hardRefreshFromStorage);
+
+  window.addEventListener("pageshow", function (event) {
+    if (event && event.persisted) {
+      window.location.reload();
+      return;
+    }
+    hardRefreshFromStorage();
+  });
+
+  window.addEventListener("focus", hardRefreshFromStorage);
+
   document.addEventListener("visibilitychange", function () {
     if (!document.hidden) {
-      refreshFromStorage();
+      hardRefreshFromStorage();
     }
   });
+
+  document.addEventListener("resume", hardRefreshFromStorage);
+
+  window.setInterval(maybeRefreshFromStorage, 1500);
 })();
 </script>
 
