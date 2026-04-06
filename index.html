@@ -303,130 +303,62 @@
   function clampPercent(v){ return Math.max(0, Math.min(100, v)); }
   function esc(s){ return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;"); }
 
-  var DB_NAME = "TransportTrackerDB";
-  var DB_VERSION = 1;
-  var STORE_NAME = "appState";
-  var DB_KEY = STORAGE_KEY;
-  var dbPromise = null;
-
-  function openDb() {
-    if (dbPromise) return dbPromise;
-    dbPromise = new Promise(function(resolve, reject) {
-      if (!window.indexedDB) {
-        reject(new Error("IndexedDB unavailable"));
-        return;
+  function loadState() {
+    var storage = safeGetStorage();
+    if (!storage) { showStatus("Local storage is unavailable in this viewer, so changes may not persist after closing."); return clone(defaultState); }
+    try {
+      var raw = storage.getItem(STORAGE_KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && Array.isArray(parsed.entries)) return parsed;
       }
-      var request = window.indexedDB.open(DB_NAME, DB_VERSION);
-      request.onupgradeneeded = function(event) {
-        var db = event.target.result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME);
-        }
-      };
-      request.onsuccess = function(event) { resolve(event.target.result); };
-      request.onerror = function() { reject(request.error || new Error("IndexedDB open failed")); };
-    });
-    return dbPromise;
+    } catch (e) {}
+    return migrateOlderData();
   }
 
-  function idbGet(key) {
-    return openDb().then(function(db) {
-      return new Promise(function(resolve, reject) {
-        var tx = db.transaction(STORE_NAME, "readonly");
-        var store = tx.objectStore(STORE_NAME);
-        var req = store.get(key);
-        req.onsuccess = function() { resolve(req.result || null); };
-        req.onerror = function() { reject(req.error || new Error("IndexedDB get failed")); };
-      });
-    });
-  }
-
-  function idbSet(key, value) {
-    return openDb().then(function(db) {
-      return new Promise(function(resolve, reject) {
-        var tx = db.transaction(STORE_NAME, "readwrite");
-        var store = tx.objectStore(STORE_NAME);
-        var req = store.put(value, key);
-        req.onsuccess = function() { resolve(true); };
-        req.onerror = function() { reject(req.error || new Error("IndexedDB put failed")); };
-      });
-    });
-  }
-
-  function normalizeState(raw) {
-    if (!raw) return null;
-    if (raw && Array.isArray(raw.entries)) {
-      return {
-        entries: raw.entries.map(function(e){
-          return {
-            id: e.id || makeId(),
-            date: e.date || todayKey(),
-            time: e.time || "12:00",
-            type: e.type || ((e.nut === "all") ? "round" : "manual"),
-            nut: e.nut || "all",
-            distance: Number(e.distance || DEFAULT_STEP_MM)
-          };
-        }),
-        notes: raw.notes || {}
-      };
-    }
-    return null;
-  }
-
-  function migrateOlderDataSync() {
+  function migrateOlderData() {
     var storage = safeGetStorage();
     if (!storage) return clone(defaultState);
-    var keys = [STORAGE_KEY, "nutTransportTrackerV7", "nutTransportTrackerV6", "nutTransportTrackerV5", "nutTransportTrackerV4", "nutTransportTrackerV3", "nutTransportTrackerV2", "nutTransportTrackerV1"];
+    var converted = clone(defaultState);
+    var keys = ["nutTransportTrackerV5","nutTransportTrackerV4","nutTransportTrackerV3","nutTransportTrackerV2","nutTransportTrackerV1"];
     for (var k = 0; k < keys.length; k++) {
       try {
         var raw = storage.getItem(keys[k]);
         if (!raw) continue;
         var old = JSON.parse(raw);
-        var normalized = normalizeState(old);
-        if (normalized) return normalized;
+        if ((keys[k] === "nutTransportTrackerV5" || keys[k] === "nutTransportTrackerV4" || keys[k] === "nutTransportTrackerV3") && old && Array.isArray(old.entries)) {
+          converted.entries = old.entries.map(function(e){
+            return { id:e.id || makeId(), date:e.date || todayKey(), time:e.time || "12:00", type:e.type || ((e.nut === "all") ? "round" : "manual"), nut:e.nut || "all", distance:Number(e.distance || DEFAULT_STEP_MM) };
+          });
+          converted.notes = old.notes || {};
+          return converted;
+        }
         if ((keys[k] === "nutTransportTrackerV2" || keys[k] === "nutTransportTrackerV1") && old && Array.isArray(old.log)) {
-          return {
-            entries: old.log.map(function(item){
-              var type = item.type === "round" ? "round" : "manual", nut = "all";
-              if (type === "manual") {
-                if ((item.label || "").indexOf("Nut A") !== -1) nut = "A";
-                else if ((item.label || "").indexOf("Nut B") !== -1) nut = "B";
-                else if ((item.label || "").indexOf("Nut C") !== -1) nut = "C";
-              }
-              return { id:item.entryId || makeId(), date:item.date || todayKey(), time:item.timeOnly || "12:00", type:type, nut:nut, distance:DEFAULT_STEP_MM };
-            }),
-            notes: old.notes || {}
-          };
+          converted.entries = old.log.map(function(item){
+            var type = item.type === "round" ? "round" : "manual", nut = "all";
+            if (type === "manual") {
+              if ((item.label || "").indexOf("Nut A") !== -1) nut = "A";
+              else if ((item.label || "").indexOf("Nut B") !== -1) nut = "B";
+              else if ((item.label || "").indexOf("Nut C") !== -1) nut = "C";
+            }
+            return { id:item.entryId || makeId(), date:item.date || todayKey(), time:item.timeOnly || "12:00", type:type, nut:nut, distance:DEFAULT_STEP_MM };
+          });
+          converted.notes = old.notes || {};
+          return converted;
         }
       } catch (e) {}
     }
-    return clone(defaultState);
-  }
-
-  async function loadState() {
-    try {
-      var fromDb = await idbGet(DB_KEY);
-      var normalized = normalizeState(fromDb);
-      if (normalized) return normalized;
-
-      var migrated = migrateOlderDataSync();
-      try { await idbSet(DB_KEY, migrated); } catch (e) {}
-      return migrated;
-    } catch (e) {
-      var fallback = migrateOlderDataSync();
-      showStatus("Using fallback storage because IndexedDB was unavailable.");
-      return fallback;
-    }
+    return converted;
   }
 
   function saveState() {
-    var snapshot = clone(state);
-    idbSet(DB_KEY, snapshot).then(function(){
+    var storage = safeGetStorage();
+    if (!storage) { showStatus("Local storage is unavailable in this viewer, so changes may not persist after closing."); return false; }
+    try { storage.setItem(STORAGE_KEY, JSON.stringify(state));
+      storage.setItem(STORAGE_KEY + "_last_saved_at", String(Date.now()));
       hideStatus();
-    }).catch(function(){
-      showStatus("IndexedDB save failed. Changes may not persist.");
-    });
-    return true;
+      return true; }
+    catch (e) { showStatus("This viewer blocked saving to local storage. Changes may not persist."); return false; }
   }
 
   function sortedEntries(){ return state.entries.slice().sort(function(a,b){ return (a.date + " " + a.time).localeCompare(b.date + " " + b.time); }); }
@@ -717,9 +649,8 @@
   }
 
   
-  var state = clone(defaultState);
+  var state = loadState();
   var lastRenderedFingerprint = null;
-  var appReady = false;
 
   function currentStateFingerprint(obj) {
     try {
@@ -735,38 +666,14 @@
     }
   }
 
-  function setActionButtonsDisabled(disabled) {
-    [
-      "completeRoundBtn","undoBtn","nutABtn","nutBBtn","nutCBtn",
-      "stickyRoundBtn","stickyUndoBtn","showResetBtn","saveNoteBtn",
-      "reloadNoteBtn","toggleEditBtn","syncNowBtn","exportJsonBtn",
-      "exportCsvBtn","importJsonBtn","downloadTemplateBtn"
-    ].forEach(function(id){
-      var node = el(id);
-      if (node) node.disabled = !!disabled;
-    });
-  }
-
-  async function syncFromStorage() {
-    state = await loadState();
+  function syncFromStorage() {
+    state = loadState();
     render();
     lastRenderedFingerprint = currentStateFingerprint(state);
-
-    if (window.requestAnimationFrame) {
-      window.requestAnimationFrame(function () { render(); });
-    }
-    window.setTimeout(function () { render(); }, 50);
-    window.setTimeout(function () { render(); }, 250);
   }
 
-  async function forceReloadSavedData() {
-    setActionButtonsDisabled(true);
-    await syncFromStorage();
-    setActionButtonsDisabled(false);
-  }
-
-  async function refreshGuardBeforeAction() {
-    var latest = await loadState();
+  function refreshGuardBeforeAction() {
+    var latest = loadState();
     var latestFingerprint = currentStateFingerprint(latest);
     if (lastRenderedFingerprint !== latestFingerprint) {
       state = latest;
@@ -779,27 +686,24 @@
   }
 
   var _completeRound = completeRound;
-  completeRound = async function() {
-    if (!appReady) return;
-    if (await refreshGuardBeforeAction()) return;
+  completeRound = function() {
+    if (refreshGuardBeforeAction()) return;
     hideStatus();
     _completeRound();
     lastRenderedFingerprint = currentStateFingerprint(state);
   };
 
   var _manualAdd = manualAdd;
-  manualAdd = async function(nut) {
-    if (!appReady) return;
-    if (await refreshGuardBeforeAction()) return;
+  manualAdd = function(nut) {
+    if (refreshGuardBeforeAction()) return;
     hideStatus();
     _manualAdd(nut);
     lastRenderedFingerprint = currentStateFingerprint(state);
   };
 
   var _undoLast = undoLast;
-  undoLast = async function() {
-    if (!appReady) return;
-    if (await refreshGuardBeforeAction()) return;
+  undoLast = function() {
+    if (refreshGuardBeforeAction()) return;
     hideStatus();
     _undoLast();
     lastRenderedFingerprint = currentStateFingerprint(state);
@@ -822,28 +726,19 @@
   bindEvents();
 
   if (el("syncNowBtn")) {
-    el("syncNowBtn").addEventListener("click", async function() {
-      await forceReloadSavedData();
+    el("syncNowBtn").addEventListener("click", function() {
+      syncFromStorage();
       showStatus("Saved data reloaded.");
     });
   }
 
-  async function initApp() {
-    setActionButtonsDisabled(true);
-    showStatus("Loading saved data…");
-    await syncFromStorage();
-    hideStatus();
-    setActionButtonsDisabled(false);
-    appReady = true;
-  }
+  syncFromStorage();
 
-  initApp();
-
-  window.addEventListener("load", function () { initApp(); });
-  window.addEventListener("pageshow", function () { initApp(); });
-  window.addEventListener("focus", function () { initApp(); });
+  window.addEventListener("load", function () { syncFromStorage(); });
+  window.addEventListener("pageshow", function () { syncFromStorage(); });
+  window.addEventListener("focus", function () { syncFromStorage(); });
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) initApp();
+    if (!document.hidden) syncFromStorage();
   });
 })();
 </script>
