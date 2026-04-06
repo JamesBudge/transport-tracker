@@ -670,6 +670,26 @@
     state = loadState();
     render();
     lastRenderedFingerprint = currentStateFingerprint(state);
+
+    if (window.requestAnimationFrame) {
+      window.requestAnimationFrame(function () { render(); });
+    }
+    window.setTimeout(function () { render(); }, 50);
+    window.setTimeout(function () { render(); }, 250);
+    window.setTimeout(function () { render(); }, 800);
+  }
+
+  function forceReloadSavedData() {
+    state = loadState();
+    render();
+    lastRenderedFingerprint = currentStateFingerprint(state);
+
+    if (window.requestAnimationFrame) {
+      window.requestAnimationFrame(function () { render(); });
+    }
+    window.setTimeout(function () { render(); }, 50);
+    window.setTimeout(function () { render(); }, 250);
+    window.setTimeout(function () { render(); }, 800);
   }
 
   function refreshGuardBeforeAction() {
@@ -727,7 +747,7 @@
 
   if (el("syncNowBtn")) {
     el("syncNowBtn").addEventListener("click", function() {
-      syncFromStorage();
+      forceReloadSavedData();
       showStatus("Saved data reloaded.");
     });
   }
