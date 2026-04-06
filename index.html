@@ -135,6 +135,10 @@
     </div>
     <div class="milestone" id="milestoneMessage">🚀 Great start — keep the rhythm going.</div>
     <div id="statusBox" class="status"></div>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="btn-secondary" id="syncNowBtn" type="button">🔄 Reload saved data</button>
+      <div></div>
+    </div>
   </div>
 
   <div class="section">
@@ -646,64 +650,96 @@
 
   
   var state = loadState();
-  var lastSeenSavedAt = null;
+  var lastRenderedFingerprint = null;
 
-  function getLastSavedAt() {
-    var storage = safeGetStorage();
-    if (!storage) return null;
-    return storage.getItem(STORAGE_KEY + "_last_saved_at");
+  function currentStateFingerprint(obj) {
+    try {
+      var s = obj || state;
+      return JSON.stringify({
+        entries: (s.entries || []).map(function(e){
+          return [e.id, e.date, e.time, e.type, e.nut, Number(e.distance || 0)];
+        }),
+        notes: s.notes || {}
+      });
+    } catch (e) {
+      return String(Date.now());
+    }
   }
 
-  function hardRefreshFromStorage() {
+  function syncFromStorage() {
     state = loadState();
     render();
-
-    if (window.requestAnimationFrame) {
-      window.requestAnimationFrame(function () {
-        render();
-      });
-    }
-
-    window.setTimeout(function () { render(); }, 50);
-    window.setTimeout(function () { render(); }, 250);
-    window.setTimeout(function () { render(); }, 800);
-
-    lastSeenSavedAt = getLastSavedAt();
+    lastRenderedFingerprint = currentStateFingerprint(state);
   }
 
-  function maybeRefreshFromStorage() {
-    var latest = getLastSavedAt();
-    if (latest !== lastSeenSavedAt) {
-      hardRefreshFromStorage();
-    } else {
+  function refreshGuardBeforeAction() {
+    var latest = loadState();
+    var latestFingerprint = currentStateFingerprint(latest);
+    if (lastRenderedFingerprint !== latestFingerprint) {
+      state = latest;
       render();
+      lastRenderedFingerprint = latestFingerprint;
+      showStatus("Saved data refreshed. Tap again to record a new action.");
+      return true;
     }
+    return false;
   }
+
+  var _completeRound = completeRound;
+  completeRound = function() {
+    if (refreshGuardBeforeAction()) return;
+    hideStatus();
+    _completeRound();
+    lastRenderedFingerprint = currentStateFingerprint(state);
+  };
+
+  var _manualAdd = manualAdd;
+  manualAdd = function(nut) {
+    if (refreshGuardBeforeAction()) return;
+    hideStatus();
+    _manualAdd(nut);
+    lastRenderedFingerprint = currentStateFingerprint(state);
+  };
+
+  var _undoLast = undoLast;
+  undoLast = function() {
+    if (refreshGuardBeforeAction()) return;
+    hideStatus();
+    _undoLast();
+    lastRenderedFingerprint = currentStateFingerprint(state);
+  };
+
+  var _performReset = performReset;
+  performReset = function() {
+    hideStatus();
+    _performReset();
+    lastRenderedFingerprint = currentStateFingerprint(state);
+  };
+
+  var _saveNote = saveNote;
+  saveNote = function() {
+    hideStatus();
+    _saveNote();
+    lastRenderedFingerprint = currentStateFingerprint(state);
+  };
 
   bindEvents();
-  hardRefreshFromStorage();
 
-  window.addEventListener("load", hardRefreshFromStorage);
+  if (el("syncNowBtn")) {
+    el("syncNowBtn").addEventListener("click", function() {
+      syncFromStorage();
+      showStatus("Saved data reloaded.");
+    });
+  }
 
-  window.addEventListener("pageshow", function (event) {
-    if (event && event.persisted) {
-      window.location.reload();
-      return;
-    }
-    hardRefreshFromStorage();
-  });
+  syncFromStorage();
 
-  window.addEventListener("focus", hardRefreshFromStorage);
-
+  window.addEventListener("load", function () { syncFromStorage(); });
+  window.addEventListener("pageshow", function () { syncFromStorage(); });
+  window.addEventListener("focus", function () { syncFromStorage(); });
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) {
-      hardRefreshFromStorage();
-    }
+    if (!document.hidden) syncFromStorage();
   });
-
-  document.addEventListener("resume", hardRefreshFromStorage);
-
-  window.setInterval(maybeRefreshFromStorage, 1500);
 })();
 </script>
 
